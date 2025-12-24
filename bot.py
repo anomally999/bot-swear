@@ -339,3 +339,36 @@ except KeyboardInterrupt:
     logger.info("Bot stopped")
 except Exception as e:
     logger.error(f"Fatal error: {e}")
+
+async def health_check(request):
+    return web.Response(text="Swear Word Moderator is alive, bro! 😎")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)  # Render uses port 8080 by default
+    await site.start()
+    logger.info("Web server running on port 8080 — Render is happy!")
+
+# Modify the start section
+async def main():
+    async with client:
+        # Start web server and bot together
+        await asyncio.gather(
+            start_web_server(),
+            client.start(TOKEN)
+        )
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except discord.LoginFailure:
+        logger.error("Invalid token")
+    except KeyboardInterrupt:
+        logger.info("Bot stopped")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+    finally:
+        save_data()  # Final save
