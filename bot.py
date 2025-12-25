@@ -1,36 +1,119 @@
-# ======================================
-# Section 1: Imports
-# ======================================
-# Core libraries for the bot
 import discord
 import os
 import asyncio
 import json
 import logging
 import random
-from datetime import timedelta, datetime
-
-# Environment and security
 from dotenv import load_dotenv
-import hashlib  # For potential hashing if needed (e.g., secure keys)
-
-# Render health check (for web service)
+from datetime import timedelta, datetime
 from aiohttp import web
 
-# ======================================
-# Section 2: Constants and Configurations
-# ======================================
-# Security: Rate limiting cooldown (in seconds) for commands to prevent spam
-COMMAND_COOLDOWN = 5
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Max partial swear timeout (seconds)
-PARTIAL_TIMEOUT = 30
+# Load token
+load_dotenv()
+TOKEN = os.getenv('TOKEN')
+if not TOKEN:
+    logger.error("TOKEN not found!")
+    exit(1)
 
-# Swear limits
+# Intents
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+
+client = discord.Client(intents=intents)
+PREFIX = ","
+
+# Data file
+DATA_FILE = "bot_data.json"
+
+# Default data
+default_data = {
+    "bad_words": [
+        "fuck", "f u c k", "f*ck", "f**k", "f@ck", "fck", "fuk", "fucc", "fukk",
+        "fucking", "f*cking", "fuckin", "fukin", "fcking",
+        "fucker", "fuckers", "motherfucker", "m0therfucker", "mothafucka", "mf",
+        "shit", "sh1t", "sh*t", "shite", "shitt", "bullshit", "bullsh*t",
+        "ass", "a s s", "a**", "asshole", "a**hole", "assh0le", "a55hole", "arse",
+        "bitch", "b1tch", "b*tch", "bitc h", "bich",
+        "cunt", "c*nt", "c u n t",
+        "dick", "d1ck", "d*ck", "cock", "c0ck", "c*ck",
+        "pussy", "p*ssy", "pu55y",
+        "bastard", "b@stard",
+        "damn", "d@mn", "goddamn", "goddammit",
+        "wanker", "bollocks", "twat", "prick",
+        "nigger", "n1gger", "n*gg*r",
+        "fag", "f@g", "faggot",
+        "retard", "r3tard",
+        "son of a bitch", "s0b", "sonofabitch",
+        "fuck off", "piss off", "go fuck yourself", "eat shit",
+        "cocksucker", "tits", "t1ts", "boobs", "b00bs",
+        "whore", "wh0re", "slut", "sl*t",
+        "wtf", "w t f", "wt f", "what the fuck", "what the f",
+        "wth", "what the hell", "what the heck", "wtheck",
+        "omfg", "oh my fucking god",
+        "fml", "fuck my life",
+        "lmao", "lmfao", "laughing my fucking ass off",
+        "bs", "bullshit",
+        "crap", "cr@p", "cr4p",
+        "hell", "h3ll", "h*ll",
+        "bloody hell", "bloody",
+        "frick", "fr1ck", "frickin", "fricking",
+        "dang", "darn",
+        "jesus christ", "jesus f christ", "jc",
+        "holy shit", "holy crap",
+        "stfu", "shut the fuck up", "shut the f up",
+        "gtfo", "get the fuck out",
+        "smh", "ffs", "for fucks sake", "for fuck's sake",
+        "af", "as fuck",
+        "smd", "suck my dick",
+        "nsfw"
+    ],
+    "moderation_active": {},
+    "swear_counts": {}
+}
+
+# Load/save data
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r') as f:
+                content = f.read().strip()
+                if not content:
+                    logger.warning("bot_data.json empty")
+                    return default_data.copy()
+                return json.loads(content)
+        except Exception as e:
+            logger.warning(f"Load error: {e}")
+    return default_data.copy()
+
+def save_data():
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump({
+                "bad_words": bad_words,
+                "moderation_active": moderation_active,
+                "swear_counts": swear_count
+            }, f, indent=2)
+        logger.info("Data saved")
+    except Exception as e:
+        logger.error(f"Save failed: {e}")
+
+data = load_data()
+bad_words = [word.lower().replace(" ", "") for word in data.get("bad_words", default_data["bad_words"])]
+moderation_active = data.get("moderation_active", {})
+swear_count = data.get("swear_counts", {})
+
+partial_swears = {}
+
 MAX_SWEARS = 5
 TIMEOUT_MINUTES = 5
+PARTIAL_TIMEOUT = 30
 
-# Bro-style warnings and DMs (randomly selected)
 BRO_WARNINGS = [
     "Yo {user}, come on bro, chill with the language. ({count}/{max})",
     "Hey dude {user}, let's keep it clean, yeah? ({count}/{max})",
@@ -55,77 +138,8 @@ DM_MESSAGES = [
     "Hey {user}, friendly reminder: no swearing. Count: {count}/{max}. Stay cool."
 ]
 
-# Data file for persistence
-DATA_FILE = "bot_data.json"
-
-# ======================================
-# Section 3: Global Variables (Initialized Later)
-# ======================================
-bad_words = []
-moderation_active = {}
-swear_count = {}
-partial_swears = {}  # (guild_id, user_id) → {"current": str, "last_time": datetime}
-command_cooldowns = {}  # (guild_id, user_id): last_command_time
-
-# ======================================
-# Section 4: Helper Functions
-# ======================================
-# Security: Sanitize input (strip, lower for comparison)
-def sanitize_input(text):
-    return text.strip().lower()
-
-# Rate limiting check
-def is_on_cooldown(guild_id, user_id):
-    key = f"{guild_id}:{user_id}"
-    last_time = command_cooldowns.get(key)
-    if last_time:
-        time_diff = (datetime.utcnow() - last_time).total_seconds()
-        if time_diff < COMMAND_COOLDOWN:
-            return True
-    return False
-
-def update_cooldown(guild_id, user_id):
-    key = f"{guild_id}:{user_id}"
-    command_cooldowns[key] = datetime.utcnow()
-
-# Load data (secure file handling)
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r') as f:
-                content = f.read().strip()
-                if not content:
-                    logger.warning("bot_data.json empty")
-                    return default_data.copy()
-                data = json.loads(content)
-                return data
-        except Exception as e:
-            logger.error(f"Load error: {e}")
-    return default_data.copy()
-
-# Save data (secure write)
-def save_data():
-    try:
-        with open(DATA_FILE, 'w') as f:
-            json.dump({
-                "bad_words": [w for w in bad_words],  # No sensitive info
-                "moderation_active": moderation_active,
-                "swear_counts": swear_count
-            }, f, indent=2)
-        logger.info("Data saved securely")
-    except Exception as e:
-        logger.error(f"Save failed: {e}")
-
-# ======================================
-# Section 5: Event Handlers
-# ======================================
 @client.event
 async def on_ready():
-    global bad_words, moderation_active, swear_count
-    data = load_data()
-    bad_words = [word.lower().replace(" ", "") for word in data.get("bad_words", default_data["bad_words"])]
-    moderation_active = data.get("moderation_active", {})
-    swear_count = data.get("swear_counts", {})
     logger.info(f'Bot online: {client.user}')
     for guild in client.guilds:
         if guild.id not in moderation_active:
@@ -149,7 +163,9 @@ async def on_message(message):
     if not moderation_active.get(message.guild.id, True):
         return
 
-    content_lower = sanitize_input(message.content)
+    # Check if message has text content (don't delete pure GIFs)
+    has_text = bool(message.content.strip())
+    content_lower = message.content.lower().strip()
     content_no_space = content_lower.replace(" ", "")
 
     detected = any(word in content_no_space for word in bad_words)
@@ -162,7 +178,8 @@ async def on_message(message):
         count = swear_count[key]
 
         try:
-            await message.delete()
+            if has_text:
+                await message.delete()  # Delete only if text with swear
 
             warning_text = random.choice(BRO_WARNINGS).format(user=message.author.mention, count=count, max=MAX_SWEARS)
             embed = discord.Embed(description=warning_text, color=0xffa500)
@@ -190,7 +207,7 @@ async def on_message(message):
             save_data()
 
         except discord.Forbidden:
-            await message.channel.send("Yo bro, I need permissions to delete and timeout!")
+            await message.channel.send("Yo bro, I need 'Manage Messages' and 'Moderate Members' permissions!")
         except Exception as e:
             logger.error(f"Error: {e}")
 
@@ -209,11 +226,12 @@ async def on_message(message):
                 partial["last_time"] = current_time
                 if any(word in partial["current"] for word in bad_words):
                     del partial_swears[partial_key]
-                    await message.delete()
+                    if has_text:
+                        await message.delete()
                     await message.channel.send(f"{message.author.mention} Nice try splitting it up, bro — still counts! 😏")
                     swear_count[key] = swear_count.get(key, 0) + 1
                     count = swear_count[key]
-                    embed = discord.Embed(description=f"{message.author.mention} Split swear detected! Count: {count}/{MAX_SWEARS}", color=0xffa500)
+                    embed = discord.Embed(description=f"Split swear detected! Count: {count}/{MAX_SWEARS}", color=0xffa500)
                     await message.channel.send(embed=embed)
                     save_data()
                 else:
@@ -221,15 +239,28 @@ async def on_message(message):
         elif len(content_no_space) <= 4 and any(content_no_space in word for word in bad_words):
             partial_swears[partial_key] = {"current": content_no_space, "last_time": current_time}
 
-# ... [send_paginated_list same as before]
-
-async def handle_command(message):
-    if is_on_cooldown(message.guild.id, message.author.id):
-        await message.channel.send("Chill bro, wait a sec before another command.")
+async def send_paginated_list(channel):
+    if not bad_words:
+        await channel.send("List is empty, bro.")
         return
 
-    update_cooldown(message.guild.id, message.author.id)
+    pages = []
+    current = ""
+    page_num = 1
 
+    for word in sorted(bad_words):
+        line = f"`{word}`\n"
+        if len(current) + len(line) > 1900:
+            await channel.send(current)
+            current = line
+            page_num += 1
+        else:
+            current += line
+
+    if current:
+        await channel.send(current)
+
+async def handle_command(message):
     args = message.content[len(PREFIX):].strip().split()
     if not args:
         return
@@ -269,12 +300,11 @@ async def handle_command(message):
         if not is_admin:
             await message.channel.send("Only admins, bro.")
             return
-        original_word = " ".join(args[1:])
-        word = sanitize_input(original_word).replace(" ", "")
+        word = " ".join(args[1:]).lower()
         if word not in bad_words:
             bad_words.append(word)
             save_data()
-            await message.channel.send(f"✅ Added `{original_word}`, dude.")
+            await message.channel.send(f"✅ Added `{word}`, dude.")
         else:
             await message.channel.send("Already got it, bro.")
 
@@ -282,12 +312,11 @@ async def handle_command(message):
         if not is_admin:
             await message.channel.send("Admins only, fam.")
             return
-        original_word = " ".join(args[1:])
-        word = sanitize_input(original_word).replace(" ", "")
+        word = " ".join(args[1:]).lower()
         if word in bad_words:
             bad_words.remove(word)
             save_data()
-            await message.channel.send(f"❌ Removed `{original_word}`, cool.")
+            await message.channel.send(f"❌ Removed `{word}`, cool.")
         else:
             await message.channel.send("Not in list, bro.")
 
@@ -295,7 +324,7 @@ async def handle_command(message):
         await send_paginated_list(message.channel)
 
 async def health(request):
-    return web.Response(text="Swear Word Moderator is alive and chilling, bro! 😎")
+    return web.Response(text="Bot is alive, bro!")
 
 async def web_server():
     app = web.Application()
@@ -321,4 +350,3 @@ if __name__ == "__main__":
         logger.error(f"Fatal: {e}")
     finally:
         save_data()
-    
