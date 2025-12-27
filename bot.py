@@ -3,35 +3,31 @@ import os
 import asyncio
 import json
 import logging
+import aiohttp
 import random
 from dotenv import load_dotenv
-from datetime import timedelta, datetime
+from datetime import timedelta
+from discord.utils import get
 from aiohttp import web
-
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 # Load token
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    logger.error("TOKEN not found!")
+    logger.error("Token not found in .env file!")
     exit(1)
-
 # Intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-
 client = discord.Client(intents=intents)
 PREFIX = ","
-
 # Data file
 DATA_FILE = "bot_data.json"
-
-# Default data
+# Default data with full English and French swear list
 default_data = {
     "bad_words": [
         "fuck", "f u c k", "f*ck", "f**k", "f@ck", "fck", "fuk", "fucc", "fukk",
@@ -71,12 +67,59 @@ default_data = {
         "smh", "ffs", "for fucks sake", "for fuck's sake",
         "af", "as fuck",
         "smd", "suck my dick",
-        "nsfw"
+        "nsfw",
+        # French swears and variations
+        "mince", "m i n c e", "m*nc*",
+        "putain", "p u t a i n", "p*t**n", "put4in", "p*tain",
+        "merde", "m e r d e", "m*rd*", "m**de", "m3rd3",
+        "sa mère", "sa mere", "s a m e r e", "s a m è r e",
+        "con", "c o n", "c*n",
+        "conne", "c o n n e", "c*nn*",
+        "ducon", "d u c o n", "d*c*n",
+        "connard", "c o n n a r d", "c*nn*rd", "c0nnard",
+        "connasse", "c o n n a s s e", "c*nn*ss*",
+        "enculé", "e n c u l é", "encule", "3ncul3", "encul3",
+        "enculée", "e n c u l é e",
+        "bordel", "b o r d e l", "b*rd*l",
+        "bâtard", "batard", "b â t a r d", "b*t*rd",
+        "bâtarde", "batarde",
+        "enfoiré", "e n f o i r é", "3nf0ir3", "enf0ire",
+        "enfoirée", "e n f o i r é e",
+        "poufiasse", "p o u f i a s s e", "p*uf**ss*",
+        "pute", "p u t e", "p*t*", "put3",
+        "pétasse", "petasse", "p é t a s s e", "p*t*ss*",
+        "bite", "b i t e", "b*t*", "b1te",
+        "chatte", "c h a t t e", "ch*tt*", "ch4tte",
+        "chiant", "c h i a n t", "ch**nt",
+        "chiante", "c h i a n t e",
+        "niquer", "n i q u e r", "n*q**r", "n1qu3r",
+        "baiser", "b a i s e r", "b**s*r", "b4iser",
+        "dégage", "degage", "d é g a g e", "d*g*g*",
+        "salaud", "s a l a u d", "s*l**d",
+        "salope", "s a l o p e", "s*l*p*", "s4lope",
+        "ta gueule", "t a g u e u l e", "ferme ta gueule", "f e r m e t a g u e u l e",
+        "sa race", "ta race",
+        "mange tes morts", "m a n g e t e s m o r t s",
+        "nique tes morts", "n i q u e t e s m o r t s",
+        "bordel de merde", "b o r d e l d e m e r d e",
+        "putain de bordel de merde", "p u t a i n d e b o r d e l d e m e r d e",
+        "sa mère la pute", "sa mere la pute", "s a m e r e l a p u t e",
+        "putain de sa mère", "p u t a i n d e s a m e r e",
+        "putain de sa mère la pute", "p u t a i n d e s a m e r e l a p u t e",
+        "fils de chien", "f i l s d e c h i e n",
+        "fils de pute", "f i l s d e p u t e",
+        "trou du cul", "t r o u d u c u l",
+        "casser les couilles", "c a s s e r l e s c o u i l l e s",
+        "partir en couilles", "p a r t i r e n c o u i l l e s",
+        "casse-couilles", "c a s s e c o u i l l e s",
+        "s’en ficher", "s en ficher", "s e n f i c h e r",
+        "s’en foutre", "s en foutre",
+        "s’en battre les couilles", "s en battre les couilles",
+        "faire chier", "f a i r e c h i e r",
+        "à chier", "a chier", "a c h i e r"
     ],
-    "moderation_active": {},
-    "swear_counts": {}
+    "moderation_active": {}
 }
-
 # Load/save data
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -84,36 +127,33 @@ def load_data():
             with open(DATA_FILE, 'r') as f:
                 content = f.read().strip()
                 if not content:
-                    logger.warning("bot_data.json empty")
+                    logger.warning("bot_data.json is empty. Using defaults.")
                     return default_data.copy()
                 return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Corrupted JSON: {e}. Using defaults.")
         except Exception as e:
-            logger.warning(f"Load error: {e}")
+            logger.warning(f"Failed to load data: {e}. Using defaults.")
     return default_data.copy()
-
 def save_data():
     try:
         with open(DATA_FILE, 'w') as f:
             json.dump({
                 "bad_words": bad_words,
-                "moderation_active": moderation_active,
-                "swear_counts": swear_count
+                "moderation_active": moderation_active
             }, f, indent=2)
-        logger.info("Data saved")
+        logger.info("Data saved.")
     except Exception as e:
-        logger.error(f"Save failed: {e}")
-
+        logger.error(f"Failed to save data: {e}")
 data = load_data()
-bad_words = [word.lower().replace(" ", "") for word in data.get("bad_words", default_data["bad_words"])]
+bad_words = data.get("bad_words", default_data["bad_words"])
 moderation_active = data.get("moderation_active", {})
-swear_count = data.get("swear_counts", {})
-
-partial_swears = {}
-
+swear_count = {}
 MAX_SWEARS = 5
 TIMEOUT_MINUTES = 5
-PARTIAL_TIMEOUT = 30
-
+WEBHOOK_NAME = "SwearWordModerator"
+WEBHOOK_AVATAR_URL = "https://i.imgur.com/3jZ7q.jpg"
+# Chill bro/dude/friend style random warnings (English)
 BRO_WARNINGS = [
     "Yo {user}, come on bro, chill with the language. ({count}/{max})",
     "Hey dude {user}, let's keep it clean, yeah? ({count}/{max})",
@@ -129,224 +169,216 @@ BRO_WARNINGS = [
     "Easy there {user}, let's not go full sailor mode. ({count}/{max})",
     "Hey friend {user}, mind the language? Thanks bro. ({count}/{max})"
 ]
-
-DM_MESSAGES = [
-    "Hey bro, just a heads up — I caught a swear. We're keeping it chill here. You're at {count}/{max}.",
-    "Yo dude, language! That's {count}/{max}. Let's keep the server clean.",
-    "My guy, had to delete that. No hard feelings — count's at {count}/{max}.",
-    "Bruh, come on — watch it. You're on {count}/{max}. Don't make me timeout ya!",
-    "Hey {user}, friendly reminder: no swearing. Count: {count}/{max}. Stay cool."
+# French versions of warnings
+FRENCH_WARNINGS = [
+    "Yo {user}, allez mec, calme-toi avec le langage. ({count}/{max})",
+    "Hé dude {user}, on garde ça propre, ouais ? ({count}/{max})",
+    "Mec {user}, pas cool. Attention aux mots. ({count}/{max})",
+    "Allez {user}, facile champion. Pas besoin de ça. ({count}/{max})",
+    "Duuude {user}, vraiment ? On parle pas comme ça ici. ({count}/{max})",
+    "Mon pote {user}, t'es mieux que ça. Baisse le ton. ({count}/{max})",
+    "Mec {user}, c'est non de ma part dawg. ({count}/{max})",
+    "Attends {user}, langage mec ! Soyons chill. ({count}/{max})",
+    "Nah fam {user}, pas dans ce serveur. Garde ça PG. ({count}/{max})",
+    "Yo {user}, relax dude. On est bien sans les jurons. ({count}/{max})",
+    "Bruh {user}... sérieusement ? Allez mec. ({count}/{max})",
+    "Facile {user}, évitons le mode marin. ({count}/{max})",
+    "Hé ami {user}, attention au langage ? Merci mec. ({count}/{max})"
 ]
-
+async def download_avatar(session, url):
+    try:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                return await resp.read()
+    except:
+        pass
+    return None
+async def get_or_create_webhook(channel):
+    try:
+        webhooks = await channel.webhooks()
+        webhook = get(webhooks, name=WEBHOOK_NAME)
+        if webhook:
+            return webhook
+        async with aiohttp.ClientSession() as session:
+            avatar = await download_avatar(session, WEBHOOK_AVATAR_URL)
+            webhook = await channel.create_webhook(name=WEBHOOK_NAME, avatar=avatar)
+        logger.info(f"Created webhook in #{channel.name}")
+        return webhook
+    except discord.Forbidden:
+        logger.warning(f"No webhook permission in #{channel.name}")
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+    return None
+async def send_webhook(channel, content=None, embed=None):
+    webhook = await get_or_create_webhook(channel)
+    if webhook:
+        try:
+            await webhook.send(
+                content=content,
+                embed=embed,
+                username="Swear Word Moderator",
+                avatar_url=WEBHOOK_AVATAR_URL,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+        except Exception as e:
+            logger.error(f"Webhook send failed: {e}")
 @client.event
 async def on_ready():
-    logger.info(f'Bot online: {client.user}')
+    logger.info(f'Bot connected as {client.user}')
     for guild in client.guilds:
         if guild.id not in moderation_active:
             moderation_active[guild.id] = True
     save_data()
-
 @client.event
 async def on_guild_join(guild):
     moderation_active[guild.id] = True
     save_data()
-
+    logger.info(f"Joined guild: {guild.name}")
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
-
     if message.content.startswith(PREFIX):
         await handle_command(message)
         return
-
     if not moderation_active.get(message.guild.id, True):
         return
-
-    # Check if message has text content (don't delete pure GIFs)
-    has_text = bool(message.content.strip())
-    content_lower = message.content.lower().strip()
-    content_no_space = content_lower.replace(" ", "")
-
-    detected = any(word in content_no_space for word in bad_words)
-
-    key = f"{message.guild.id}:{message.author.id}"
-    partial_key = (message.guild.id, message.author.id)
-
-    if detected:
+    content_lower = message.content.lower()
+    # Detect if any bad word is in the message
+    detected_words = [word for word in bad_words if word in content_lower]
+    if detected_words:
+        # Determine if it's French by checking if any detected word is typically French
+        french_words = set([
+            "mince", "putain", "merde", "sa mère", "con", "conne", "ducon", "connard", "connasse",
+            "enculé", "enculée", "bordel", "bâtard", "bâtarde", "enfoiré", "enfoirée", "poufiasse",
+            "pute", "pétasse", "bite", "chatte", "chiant", "chiante", "niquer", "baiser", "dégage",
+            "salaud", "salope", "ta gueule", "ferme ta gueule", "sa race", "ta race", "mange tes morts",
+            "nique tes morts", "bordel de merde", "putain de bordel de merde", "sa mère la pute",
+            "putain de sa mère", "putain de sa mère la pute", "fils de chien", "fils de pute",
+            "trou du cul", "casser les couilles", "partir en couilles", "casse-couilles", "s’en ficher",
+            "s’en foutre", "s’en battre les couilles", "faire chier", "à chier"
+        ])  # Base French words without variations
+        is_french = any(any(fw in dw for fw in french_words) for dw in detected_words)
+        key = (message.guild.id, message.author.id)
         swear_count[key] = swear_count.get(key, 0) + 1
         count = swear_count[key]
-
         try:
-            if has_text:
-                await message.delete()  # Delete only if text with swear
-
-            warning_text = random.choice(BRO_WARNINGS).format(user=message.author.mention, count=count, max=MAX_SWEARS)
-            embed = discord.Embed(description=warning_text, color=0xffa500)
-            embed.set_footer(text="Keep it up and timeout incoming, bro.")
-            await message.channel.send(embed=embed)
-
-            dm_text = random.choice(DM_MESSAGES).format(user=message.author.display_name, count=count, max=MAX_SWEARS)
-            try:
-                dm_embed = discord.Embed(title="Yo, heads up bro...", description=dm_text, color=0xffa500)
-                dm_embed.set_footer(text="Just keeping the server chill 😎")
-                await message.author.send(embed=dm_embed)
-            except:
-                pass
-
+            await message.delete()
+            # Choose warnings based on language
+            warnings = FRENCH_WARNINGS if is_french else BRO_WARNINGS
+            warning_text = random.choice(warnings).format(
+                user=message.author.mention,
+                count=count,
+                max=MAX_SWEARS
+            )
+            embed = discord.Embed(
+                description=warning_text,
+                color=0xffa500
+            )
+            footer_text = "Continue comme ça et tu auras un timeout, mec." if is_french else "Keep it up and you'll get a timeout, bro."
+            embed.set_footer(text=footer_text)
+            await send_webhook(message.channel, embed=embed)
             if count >= MAX_SWEARS:
-                await message.author.timeout(timedelta(minutes=TIMEOUT_MINUTES), reason="Excessive swearing")
-                timeout_embed = discord.Embed(
-                    title="⛔ Timeout, Bro",
-                    description=f"{message.author.mention} — too many swears, dude.\nTimeout for **{TIMEOUT_MINUTES} minutes**.",
+                await message.author.timeout(timedelta(minutes=TIMEOUT_MINUTES), reason="Excessive profanity")
+                embed_title = "⛔ Timeout, Mec" if is_french else "⛔ Timeout, Bro"
+                embed_desc = f"{message.author.mention} — trop de jurons, mec.\nChillin' en timeout pour **{TIMEOUT_MINUTES} minutes**." if is_french else f"{message.author.mention} — too many swears, dude.\nChillin' in timeout for **{TIMEOUT_MINUTES} minutes**."
+                embed = discord.Embed(
+                    title=embed_title,
+                    description=embed_desc,
                     color=0xff0000
                 )
-                await message.channel.send(embed=timeout_embed)
-                del swear_count[key]
-
-            save_data()
-
+                embed_footer = "Reviens plus propre la prochaine fois." if is_french else "Come back cleaner next time."
+                embed.set_footer(text=embed_footer)
+                await send_webhook(message.channel, embed=embed)
+                swear_count[key] = 0
         except discord.Forbidden:
-            await message.channel.send("Yo bro, I need 'Manage Messages' and 'Moderate Members' permissions!")
+            embed = discord.Embed(description="Yo, je ne peux pas supprimer les messages ou timeout — donne-moi les perms, mec !" if is_french else "Yo, I can't delete messages or timeout — give me perms, bro!", color=0xff0000)
+            await send_webhook(message.channel, embed=embed)
         except Exception as e:
             logger.error(f"Error: {e}")
-
-        if partial_key in partial_swears:
-            del partial_swears[partial_key]
-
-    else:
-        current_time = datetime.utcnow()
-        if partial_key in partial_swears:
-            partial = partial_swears[partial_key]
-            time_diff = (current_time - partial["last_time"]).total_seconds()
-            if time_diff > PARTIAL_TIMEOUT:
-                del partial_swears[partial_key]
-            else:
-                partial["current"] += content_no_space
-                partial["last_time"] = current_time
-                if any(word in partial["current"] for word in bad_words):
-                    del partial_swears[partial_key]
-                    if has_text:
-                        await message.delete()
-                    await message.channel.send(f"{message.author.mention} Nice try splitting it up, bro — still counts! 😏")
-                    swear_count[key] = swear_count.get(key, 0) + 1
-                    count = swear_count[key]
-                    embed = discord.Embed(description=f"Split swear detected! Count: {count}/{MAX_SWEARS}", color=0xffa500)
-                    await message.channel.send(embed=embed)
-                    save_data()
-                else:
-                    partial_swears[partial_key] = partial
-        elif len(content_no_space) <= 4 and any(content_no_space in word for word in bad_words):
-            partial_swears[partial_key] = {"current": content_no_space, "last_time": current_time}
-
 async def send_paginated_list(channel):
     if not bad_words:
-        await channel.send("List is empty, bro.")
+        embed = discord.Embed(description="La liste est vide, mec.", color=0x00ff00)
+        await send_webhook(channel, embed=embed)
         return
-
     pages = []
     current = ""
     page_num = 1
-
     for word in sorted(bad_words):
         line = f"`{word}`\n"
         if len(current) + len(line) > 1900:
-            await channel.send(current)
+            embed = discord.Embed(title=f"Mots Filtrés — Page {page_num}", description=current, color=0x3498db)
+            embed.set_footer(text=f"Total: {len(bad_words)} mots")
+            pages.append(embed)
             current = line
             page_num += 1
         else:
             current += line
-
     if current:
-        await channel.send(current)
-
+        embed = discord.Embed(title=f"Mots Filtrés — Page {page_num}", description=current, color=0x3498db)
+        embed.set_footer(text=f"Total: {len(bad_words)} mots")
+        pages.append(embed)
+    for embed in pages:
+        await send_webhook(channel, embed=embed)
+        await asyncio.sleep(0.5)
 async def handle_command(message):
     args = message.content[len(PREFIX):].strip().split()
     if not args:
         return
     cmd = args[0].lower()
-
     perms = message.author.guild_permissions
     is_admin = perms.administrator or perms.manage_guild
-
     if cmd == "help":
-        embed = discord.Embed(title="Yo, Swear Word Moderator Here", color=0x9b59b6)
-        embed.add_field(name="Public Commands", value="`,help` • `,status` • `,list`", inline=False)
-        embed.add_field(name="Admin Only", value="`,activate` • `,deactivate` • `,addword <word>` • `,removeword <word>`", inline=False)
-        embed.set_footer(text="Prefix: , | Keeping it chill, bro 😎")
-        await message.channel.send(embed=embed)
-
+        embed = discord.Embed(title="Yo, Swear Word Moderator Ici", color=0x9b59b6)
+        embed.add_field(name="Commandes Publiques", value="`,help` • `,status` • `,list`", inline=False)
+        embed.add_field(name="Admin Seulement", value="`,activate` • `,deactivate` • `,addword <mot>` • `,removeword <mot>`", inline=False)
+        embed.set_footer(text="Préfixe: , | J'essaie juste de garder ça chill ici, mec.")
+        await send_webhook(message.channel, embed=embed)
     elif cmd == "status":
-        status = "Enabled ✅" if moderation_active.get(message.guild.id, True) else "Disabled ❌"
-        await message.channel.send(f"Moderation is **{status}**, bro.")
-
+        status = "Activé ✅" if moderation_active.get(message.guild.id, True) else "Désactivé ❌"
+        await send_webhook(message.channel, content=f"La modération est **{status}**, mec.")
     elif cmd == "activate":
-        if not is_admin:
-            await message.channel.send("Nah bro, admins only.")
-            return
+        if not is_admin: return await send_webhook(message.channel, content="Nah mec, admins seulement.")
         moderation_active[message.guild.id] = True
         save_data()
-        await message.channel.send("✅ Moderation enabled, dude.")
-
+        await send_webhook(message.channel, content="✅ Modération activée, dude.")
     elif cmd == "deactivate":
-        if not is_admin:
-            await message.channel.send("Admins only, my guy.")
-            return
+        if not is_admin: return await send_webhook(message.channel, content="Admins seulement, mon pote.")
         moderation_active[message.guild.id] = False
         save_data()
-        await message.channel.send("❌ Moderation disabled.")
-
+        await send_webhook(message.channel, content="❌ Modération désactivée pour l'instant.")
     elif cmd == "addword" and len(args) > 1:
-        if not is_admin:
-            await message.channel.send("Only admins, bro.")
-            return
-        word = " ".join(args[1:]).lower()
+        if not is_admin: return await send_webhook(message.channel, content="Seuls les admins peuvent faire ça, mec.")
+        word = " ".join(args[1:]).lower().strip()
+        if not word or len(word) > 100:
+            return await send_webhook(message.channel, content="Mot invalide, mec.")
         if word not in bad_words:
             bad_words.append(word)
             save_data()
-            await message.channel.send(f"✅ Added `{word}`, dude.")
+            await send_webhook(message.channel, content=f"✅ Ajouté `{word}` à la liste, dude.")
         else:
-            await message.channel.send("Already got it, bro.")
-
+            await send_webhook(message.channel, content="Déjà là, mec.")
     elif cmd == "removeword" and len(args) > 1:
-        if not is_admin:
-            await message.channel.send("Admins only, fam.")
-            return
-        word = " ".join(args[1:]).lower()
+        if not is_admin: return await send_webhook(message.channel, content="Admins seulement, fam.")
+        word = " ".join(args[1:]).lower().strip()
+        if not word or len(word) > 100:
+            return await send_webhook(message.channel, content="Mot invalide, mec.")
         if word in bad_words:
             bad_words.remove(word)
             save_data()
-            await message.channel.send(f"❌ Removed `{word}`, cool.")
+            await send_webhook(message.channel, content=f"❌ Supprimé `{word}`, cool.")
         else:
-            await message.channel.send("Not in list, bro.")
-
+            await send_webhook(message.channel, content="N'était même pas là, mec.")
     elif cmd in ["list", "listwords"]:
         await send_paginated_list(message.channel)
-
-async def health(request):
-    return web.Response(text="Bot is alive, bro!")
-
-async def web_server():
-    app = web.Application()
-    app.router.add_get('/', health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    logger.info("Render health check on port 8080")
-
-async def main():
-    await asyncio.gather(
-        web_server(),
-        client.start(TOKEN)
-    )
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped")
-    except Exception as e:
-        logger.error(f"Fatal: {e}")
-    finally:
-        save_data()
+@client.event
+async def on_disconnect():
+    save_data()
+try:
+    client.run(TOKEN)
+except discord.LoginFailure:
+    logger.error("Invalid token")
+except KeyboardInterrupt:
+    logger.info("Bot stopped")
+except Exception as e:
+    logger.error(f"Fatal error: {e}")
