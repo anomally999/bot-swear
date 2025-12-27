@@ -3,124 +3,92 @@ import os
 import asyncio
 import json
 import logging
-import aiohttp
 import random
 from dotenv import load_dotenv
-from datetime import timedelta
-from discord.utils import get
+from datetime import timedelta, datetime
 from aiohttp import web
-# Setup logging
+
+# Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-# Load token
+
+# Chargement du token
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    logger.error("Token not found in .env file!")
+    logger.error("TOKEN non trouvé !")
     exit(1)
-# Intents - IMPORTANT: Enable 'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' in Discord Developer Portal > Bot > Privileged Gateway Intents
-# Otherwise, the bot won't receive message content or member events, and you'll see a fatal error in logs.
+
+# Intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+
 client = discord.Client(intents=intents)
 PREFIX = ","
-# Data file
+
+# Fichier de données
 DATA_FILE = "bot_data.json"
-# Default data with full English and French swear list
+
+# Données par défaut avec tous les gros mots français et variantes
 default_data = {
     "bad_words": [
-        "fuck", "f u c k", "f*ck", "f**k", "f@ck", "fck", "fuk", "fucc", "fukk",
-        "fucking", "f*cking", "fuckin", "fukin", "fcking",
-        "fucker", "fuckers", "motherfucker", "m0therfucker", "mothafucka", "mf",
-        "shit", "sh1t", "sh*t", "shite", "shitt", "bullshit", "bullsh*t",
-        "ass", "a s s", "a**", "asshole", "a**hole", "assh0le", "a55hole", "arse",
-        "bitch", "b1tch", "b*tch", "bitc h", "bich",
-        "cunt", "c*nt", "c u n t",
-        "dick", "d1ck", "d*ck", "cock", "c0ck", "c*ck",
-        "pussy", "p*ssy", "pu55y",
-        "bastard", "b@stard",
-        "damn", "d@mn", "goddamn", "goddammit",
-        "wanker", "bollocks", "twat", "prick",
-        "nigger", "n1gger", "n*gg*r",
-        "fag", "f@g", "faggot",
-        "retard", "r3tard",
-        "son of a bitch", "s0b", "sonofabitch",
-        "fuck off", "piss off", "go fuck yourself", "eat shit",
-        "cocksucker", "tits", "t1ts", "boobs", "b00bs",
-        "whore", "wh0re", "slut", "sl*t",
-        "wtf", "w t f", "wt f", "what the fuck", "what the f",
-        "wth", "what the hell", "what the heck", "wtheck",
-        "omfg", "oh my fucking god",
-        "fml", "fuck my life",
-        "lmao", "lmfao", "laughing my fucking ass off",
-        "bs", "bullshit",
-        "crap", "cr@p", "cr4p",
-        "hell", "h3ll", "h*ll",
-        "bloody hell", "bloody",
-        "frick", "fr1ck", "frickin", "fricking",
-        "dang", "darn",
-        "jesus christ", "jesus f christ", "jc",
-        "holy shit", "holy crap",
-        "stfu", "shut the fuck up", "shut the f up",
-        "gtfo", "get the fuck out",
-        "smh", "ffs", "for fucks sake", "for fuck's sake",
-        "af", "as fuck",
-        "smd", "suck my dick",
-        "nsfw",
-        # French swears and variations
-        "mince", "m i n c e", "m*nc*",
-        "putain", "p u t a i n", "p*t**n", "put4in", "p*tain",
-        "merde", "m e r d e", "m*rd*", "m**de", "m3rd3",
-        "sa mère", "sa mere", "s a m e r e", "s a m è r e",
-        "con", "c o n", "c*n",
-        "conne", "c o n n e", "c*nn*",
-        "ducon", "d u c o n", "d*c*n",
-        "connard", "c o n n a r d", "c*nn*rd", "c0nnard",
-        "connasse", "c o n n a s s e", "c*nn*ss*",
-        "enculé", "e n c u l é", "encule", "3ncul3", "encul3",
-        "enculée", "e n c u l é e",
-        "bordel", "b o r d e l", "b*rd*l",
-        "bâtard", "batard", "b â t a r d", "b*t*rd",
-        "bâtarde", "batarde",
-        "enfoiré", "e n f o i r é", "3nf0ir3", "enf0ire",
-        "enfoirée", "e n f o i r é e",
-        "poufiasse", "p o u f i a s s e", "p*uf**ss*",
-        "pute", "p u t e", "p*t*", "put3",
-        "pétasse", "petasse", "p é t a s s e", "p*t*ss*",
-        "bite", "b i t e", "b*t*", "b1te",
-        "chatte", "c h a t t e", "ch*tt*", "ch4tte",
-        "chiant", "c h i a n t", "ch**nt",
-        "chiante", "c h i a n t e",
-        "niquer", "n i q u e r", "n*q**r", "n1qu3r",
-        "baiser", "b a i s e r", "b**s*r", "b4iser",
-        "dégage", "degage", "d é g a g e", "d*g*g*",
-        "salaud", "s a l a u d", "s*l**d",
-        "salope", "s a l o p e", "s*l*p*", "s4lope",
-        "ta gueule", "t a g u e u l e", "ferme ta gueule", "f e r m e t a g u e u l e",
-        "sa race", "ta race",
-        "mange tes morts", "m a n g e t e s m o r t s",
-        "nique tes morts", "n i q u e t e s m o r t s",
-        "bordel de merde", "b o r d e l d e m e r d e",
-        "putain de bordel de merde", "p u t a i n d e b o r d e l d e m e r d e",
-        "sa mère la pute", "sa mere la pute", "s a m e r e l a p u t e",
-        "putain de sa mère", "p u t a i n d e s a m e r e",
-        "putain de sa mère la pute", "p u t a i n d e s a m e r e l a p u t e",
-        "fils de chien", "f i l s d e c h i e n",
-        "fils de pute", "f i l s d e p u t e",
-        "trou du cul", "t r o u d u c u l",
-        "casser les couilles", "c a s s e r l e s c o u i l l e s",
-        "partir en couilles", "p a r t i r e n c o u i l l e s",
-        "casse-couilles", "c a s s e c o u i l l e s",
-        "s’en ficher", "s en ficher", "s e n f i c h e r",
-        "s’en foutre", "s en foutre",
-        "s’en battre les couilles", "s en battre les couilles",
-        "faire chier", "f a i r e c h i e r",
-        "à chier", "a chier", "a c h i e r"
+        "merde", "m3rde", "m*rd*", "merd3", "m3rd3", "merd",
+        "putain", "put@1n", "put1n", "p*tain", "put@in", "putein", "put4in",
+        "pute", "put3", "p*t*", "put*",
+        "connard", "c0nnard", "conard", "c*nnard", "conn@rd", "konnard",
+        "connasse", "c0nnasse", "conasse", "c*nnasse", "conn@ss*",
+        "con", "c0n", "c*n",
+        "salaud", "sal@ud", "s*laud", "sal0ud",
+        "salope", "sal0pe", "s@lope", "s*lop*", "salop3",
+        "enculé", "encul3", "3ncul*", "encul@",
+        "enculée", "encul33", "3ncul**",
+        "bordel", "b0rdel", "b*rdel", "bord3l",
+        "cul", "c*l", "ku1",
+        "chatte", "ch@tte", "ch*tt*", "chatt3",
+        "bite", "b1te", "b*t*", "bit3",
+        "couilles", "c0uilles", "c*uill*s", "cou1ll3s",
+        "branleur", "br@nl3ur", "br*nl*ur",
+        "emmerde", "3mm3rd*", "emm*rd*",
+        "chier", "chi3r", "ch1*r",
+        "niquer", "n1qu3r", "n*qu*r",
+        "baiser", "b@1s3r", "b*is*r",
+        "batard", "b@tard", "b*tard", "bat@rd",
+        "enfoiré", "3nfoir*", "enf0ir3",
+        "pouffiasse", "pouff1@ss*", "p*uffi*ss*",
+        "pétasse", "p3t@ss*", "p*tass*",
+        "trou du cul", "tr0u du cul", "tr*u d* c*l",
+        "fils de pute", "f1ls d* put*", "f*ls de put3",
+        "fils de chien", "f1ls d* chi3n",
+        "sa mère", "s@ m3r*", "sa m*r*",
+        "ta mère", "t@ m3r*", "ta m*r*",
+        "nique ta mère", "n1qu* t@ m3r*",
+        "ta mère la pute", "t@ m3r* l@ put*",
+        "sa mère la pute", "s@ m3r* l@ put*",
+        "va te faire foutre", "v@ t* f@ir* f0utr*",
+        "va te faire enculer", "v@ t* f@ir* 3ncul*r",
+        "ferme ta gueule", "f3rm* t@ gu3ul*",
+        "ta gueule", "t@ gu3ul*",
+        "casse les couilles", "c@ss* l*s c0uill*s",
+        "casse-couilles", "c@ss*-c0uill*s",
+        "fait chier", "f@it chi3r",
+        "putain de merde", "put@1n d* m3rd*",
+        "bordel de merde", "b0rd3l d* m3rd*",
+        "putain de bordel de merde", "put@1n d* b0rd3l d* m3rd*",
+        "nom de dieu", "n0m d* di3u",
+        "ostie", "0sti3", "0st1*",
+        "tabarnak", "t@b@rn@k", "tab@rn@k",
+        "crisse", "cr1ss*", "cr*ss*",
+        "calisse", "c@1iss*", "c*liss*",
+        "sacrament", "s@cr@m3nt", "s*cr*m*nt",
+        "plotte", "pl0tt*", "pl*tt*",
+        "va te crosser", "v@ t* cr0ss*r",
     ],
-    "moderation_active": {}
+    "moderation_active": {},
+    "swear_counts": {}
 }
+
 # Load/save data
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -128,258 +96,269 @@ def load_data():
             with open(DATA_FILE, 'r') as f:
                 content = f.read().strip()
                 if not content:
-                    logger.warning("bot_data.json is empty. Using defaults.")
+                    logger.warning("bot_data.json vide")
                     return default_data.copy()
                 return json.loads(content)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Corrupted JSON: {e}. Using defaults.")
         except Exception as e:
-            logger.warning(f"Failed to load data: {e}. Using defaults.")
+            logger.warning(f"Erreur de chargement: {e}")
     return default_data.copy()
+
 def save_data():
     try:
         with open(DATA_FILE, 'w') as f:
             json.dump({
                 "bad_words": bad_words,
-                "moderation_active": moderation_active
+                "moderation_active": moderation_active,
+                "swear_counts": swear_count
             }, f, indent=2)
-        logger.info("Data saved.")
+        logger.info("Données sauvegardées")
     except Exception as e:
-        logger.error(f"Failed to save data: {e}")
+        logger.error(f"Échec de sauvegarde: {e}")
+
 data = load_data()
-bad_words = data.get("bad_words", default_data["bad_words"])
+bad_words = [word.lower().replace(" ", "") for word in data.get("bad_words", default_data["bad_words"])]
 moderation_active = data.get("moderation_active", {})
-swear_count = {}
+swear_count = data.get("swear_counts", {})
+
+partial_swears = {}
+
 MAX_SWEARS = 5
 TIMEOUT_MINUTES = 5
-WEBHOOK_NAME = "SwearWordModerator"
-WEBHOOK_AVATAR_URL = "https://i.imgur.com/3jZ7q.jpg"
-# Chill bro/dude/friend style random warnings (English)
+PARTIAL_TIMEOUT = 30
+
+# Avertissements en français avec vibe amicale
 BRO_WARNINGS = [
-    "Yo {user}, come on bro, chill with the language. ({count}/{max})",
-    "Hey dude {user}, let's keep it clean, yeah? ({count}/{max})",
-    "Bro {user}, not cool man. Watch the words. ({count}/{max})",
-    "Aye {user}, easy there champ. No need for that. ({count}/{max})",
-    "Duuude {user}, really? We don't talk like that here. ({count}/{max})",
-    "My guy {user}, you're better than that. Tone it down. ({count}/{max})",
-    "Bro {user}, that's a no from me dawg. ({count}/{max})",
-    "Hold up {user}, language bro! Let's be chill. ({count}/{max})",
-    "Nah fam {user}, not in this server. Keep it PG. ({count}/{max})",
-    "Yo {user}, relax dude. We good without the swears. ({count}/{max})",
-    "Bruh {user}... seriously? Come on man. ({count}/{max})",
-    "Easy there {user}, let's not go full sailor mode. ({count}/{max})",
-    "Hey friend {user}, mind the language? Thanks bro. ({count}/{max})"
-]
-# French versions of warnings
-FRENCH_WARNINGS = [
-    "Yo {user}, allez mec, calme-toi avec le langage. ({count}/{max})",
-    "Hé dude {user}, on garde ça propre, ouais ? ({count}/{max})",
-    "Mec {user}, pas cool. Attention aux mots. ({count}/{max})",
-    "Allez {user}, facile champion. Pas besoin de ça. ({count}/{max})",
-    "Duuude {user}, vraiment ? On parle pas comme ça ici. ({count}/{max})",
-    "Mon pote {user}, t'es mieux que ça. Baisse le ton. ({count}/{max})",
-    "Mec {user}, c'est non de ma part dawg. ({count}/{max})",
-    "Attends {user}, langage mec ! Soyons chill. ({count}/{max})",
-    "Nah fam {user}, pas dans ce serveur. Garde ça PG. ({count}/{max})",
-    "Yo {user}, relax dude. On est bien sans les jurons. ({count}/{max})",
-    "Bruh {user}... sérieusement ? Allez mec. ({count}/{max})",
+    "Yo {user}, allez bro, calme-toi avec le langage. ({count}/{max})",
+    "Hey dude {user}, on garde ça propre, ouais? ({count}/{max})",
+    "Bro {user}, pas cool mec. Attention aux mots. ({count}/{max})",
+    "Aye {user}, facile champion. Pas besoin de ça. ({count}/{max})",
+    "Duuude {user}, vraiment? On parle pas comme ça ici. ({count}/{max})",
+    "Mon gars {user}, tu vaux mieux que ça. Baisse le ton. ({count}/{max})",
+    "Bro {user}, c'est non pour moi dawg. ({count}/{max})",
+    "Attends {user}, langage bro! Soyons chill. ({count}/{max})",
+    "Nah fam {user}, pas dans ce server. Garde ça PG. ({count}/{max})",
+    "Yo {user}, relax dude. On est bien sans les gros mots. ({count}/{max})",
+    "Bruh {user}... sérieusement? Allez mec. ({count}/{max})",
     "Facile {user}, évitons le mode marin. ({count}/{max})",
-    "Hé ami {user}, attention au langage ? Merci mec. ({count}/{max})"
+    "Hey friend {user}, attention au langage? Merci bro. ({count}/{max})"
 ]
-async def download_avatar(session, url):
-    try:
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                return await resp.read()
-    except:
-        pass
-    return None
-async def get_or_create_webhook(channel):
-    try:
-        webhooks = await channel.webhooks()
-        webhook = get(webhooks, name=WEBHOOK_NAME)
-        if webhook:
-            return webhook
-        async with aiohttp.ClientSession() as session:
-            avatar = await download_avatar(session, WEBHOOK_AVATAR_URL)
-            webhook = await channel.create_webhook(name=WEBHOOK_NAME, avatar=avatar)
-        logger.info(f"Created webhook in #{channel.name}")
-        return webhook
-    except discord.Forbidden:
-        logger.warning(f"No webhook permission in #{channel.name}")
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-    return None
-async def send_webhook(channel, content=None, embed=None):
-    webhook = await get_or_create_webhook(channel)
-    if webhook:
-        try:
-            await webhook.send(
-                content=content,
-                embed=embed,
-                username="Swear Word Moderator",
-                avatar_url=WEBHOOK_AVATAR_URL,
-                allowed_mentions=discord.AllowedMentions.none()
-            )
-        except Exception as e:
-            logger.error(f"Webhook send failed: {e}")
+
+DM_MESSAGES = [
+    "Hey bro, juste un heads up — j'ai capté un gros mot. On garde ça chill ici. T'es à {count}/{max}.",
+    "Yo dude, langage! C'est {count}/{max}. Gardons le server propre.",
+    "Mon gars, j'ai dû supprimer ça. Pas de rancune — compte à {count}/{max}.",
+    "Bruh, allez — attention. T'es à {count}/{max}. Me force pas à te timeout!",
+    "Hey {user}, rappel amical: pas de gros mots. Compte: {count}/{max}. Reste cool."
+]
+
 @client.event
 async def on_ready():
-    logger.info(f'Bot connected as {client.user}')
+    logger.info(f'Bot en ligne: {client.user}')
     for guild in client.guilds:
         if guild.id not in moderation_active:
             moderation_active[guild.id] = True
     save_data()
+
 @client.event
 async def on_guild_join(guild):
     moderation_active[guild.id] = True
     save_data()
-    logger.info(f"Joined guild: {guild.name}")
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
+
     if message.content.startswith(PREFIX):
         await handle_command(message)
         return
+
     if not moderation_active.get(message.guild.id, True):
         return
-    content_lower = message.content.lower()
-    # Detect if any bad word is in the message
-    detected_words = [word for word in bad_words if word in content_lower]
-    if detected_words:
-        # Determine if it's French by checking if any detected word is typically French
-        french_words = set([
-            "mince", "putain", "merde", "sa mère", "con", "conne", "ducon", "connard", "connasse",
-            "enculé", "enculée", "bordel", "bâtard", "bâtarde", "enfoiré", "enfoirée", "poufiasse",
-            "pute", "pétasse", "bite", "chatte", "chiant", "chiante", "niquer", "baiser", "dégage",
-            "salaud", "salope", "ta gueule", "ferme ta gueule", "sa race", "ta race", "mange tes morts",
-            "nique tes morts", "bordel de merde", "putain de bordel de merde", "sa mère la pute",
-            "putain de sa mère", "putain de sa mère la pute", "fils de chien", "fils de pute",
-            "trou du cul", "casser les couilles", "partir en couilles", "casse-couilles", "s’en ficher",
-            "s’en foutre", "s’en battre les couilles", "faire chier", "à chier"
-        ])  # Base French words without variations
-        is_french = any(any(fw in dw for fw in french_words) for dw in detected_words)
-        key = (message.guild.id, message.author.id)
+
+    has_text = bool(message.content.strip())
+    content_lower = message.content.lower().strip()
+    content_no_space = content_lower.replace(" ", "")
+
+    detected = any(word in content_no_space for word in bad_words)
+
+    key = f"{message.guild.id}:{message.author.id}"
+    partial_key = (message.guild.id, message.author.id)
+
+    if detected:
         swear_count[key] = swear_count.get(key, 0) + 1
         count = swear_count[key]
+
         try:
-            await message.delete()
-            # Choose warnings based on language
-            warnings = FRENCH_WARNINGS if is_french else BRO_WARNINGS
-            warning_text = random.choice(warnings).format(
-                user=message.author.mention,
-                count=count,
-                max=MAX_SWEARS
-            )
-            embed = discord.Embed(
-                description=warning_text,
-                color=0xffa500
-            )
-            footer_text = "Continue comme ça et tu auras un timeout, mec." if is_french else "Keep it up and you'll get a timeout, bro."
-            embed.set_footer(text=footer_text)
-            await send_webhook(message.channel, embed=embed)
+            if has_text:
+                await message.delete()
+
+            warning_text = random.choice(BRO_WARNINGS).format(user=message.author.mention, count=count, max=MAX_SWEARS)
+            embed = discord.Embed(description=warning_text, color=0xffa500)
+            embed.set_footer(text="Continue et timeout incoming, bro.")
+            await message.channel.send(embed=embed)
+
+            dm_text = random.choice(DM_MESSAGES).format(user=message.author.display_name, count=count, max=MAX_SWEARS)
+            try:
+                dm_embed = discord.Embed(title="Yo, heads up bro...", description=dm_text, color=0xffa500)
+                dm_embed.set_footer(text="Just keeping the server chill 😎")
+                await message.author.send(embed=dm_embed)
+            except:
+                pass
+
             if count >= MAX_SWEARS:
-                await message.author.timeout(timedelta(minutes=TIMEOUT_MINUTES), reason="Excessive profanity")
-                embed_title = "⛔ Timeout, Mec" if is_french else "⛔ Timeout, Bro"
-                embed_desc = f"{message.author.mention} — trop de jurons, mec.\nChillin' en timeout pour **{TIMEOUT_MINUTES} minutes**." if is_french else f"{message.author.mention} — too many swears, dude.\nChillin' in timeout for **{TIMEOUT_MINUTES} minutes**."
-                embed = discord.Embed(
-                    title=embed_title,
-                    description=embed_desc,
+                await message.author.timeout(timedelta(minutes=TIMEOUT_MINUTES), reason="Trop de gros mots")
+                timeout_embed = discord.Embed(
+                    title="⛔ Timeout, Bro",
+                    description=f"{message.author.mention} — trop de gros mots, dude.\nTimeout pour **{TIMEOUT_MINUTES} minutes**.",
                     color=0xff0000
                 )
-                embed_footer = "Reviens plus propre la prochaine fois." if is_french else "Come back cleaner next time."
-                embed.set_footer(text=embed_footer)
-                await send_webhook(message.channel, embed=embed)
-                swear_count[key] = 0
+                await message.channel.send(embed=timeout_embed)
+                del swear_count[key]
+
+            save_data()
+
         except discord.Forbidden:
-            embed = discord.Embed(description="Yo, je ne peux pas supprimer les messages ou timeout — donne-moi les perms, mec !" if is_french else "Yo, I can't delete messages or timeout — give me perms, bro!", color=0xff0000)
-            await send_webhook(message.channel, embed=embed)
+            await message.channel.send("Yo bro, j'ai besoin des permissions 'Gérer les messages' et 'Modérer les membres'!")
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Erreur: {e}")
+
+        if partial_key in partial_swears:
+            del partial_swears[partial_key]
+
+    else:
+        current_time = datetime.utcnow()
+        if partial_key in partial_swears:
+            partial = partial_swears[partial_key]
+            time_diff = (current_time - partial["last_time"]).total_seconds()
+            if time_diff > PARTIAL_TIMEOUT:
+                del partial_swears[partial_key]
+            else:
+                partial["current"] += content_no_space
+                partial["last_time"] = current_time
+                if any(word in partial["current"] for word in bad_words):
+                    del partial_swears[partial_key]
+                    if has_text:
+                        await message.delete()
+                    await message.channel.send(f"{message.author.mention} Nice try to split it, bro — still counts! 😏")
+                    swear_count[key] = swear_count.get(key, 0) + 1
+                    count = swear_count[key]
+                    embed = discord.Embed(description=f"Split swear detected! Count: {count}/{MAX_SWEARS}", color=0xffa500)
+                    await message.channel.send(embed=embed)
+                    save_data()
+                else:
+                    partial_swears[partial_key] = partial
+        elif len(content_no_space) <= 4 and any(content_no_space in word for word in bad_words):
+            partial_swears[partial_key] = {"current": content_no_space, "last_time": current_time}
+
 async def send_paginated_list(channel):
     if not bad_words:
-        embed = discord.Embed(description="La liste est vide, mec.", color=0x00ff00)
-        await send_webhook(channel, embed=embed)
+        await channel.send("La liste est vide, bro.")
         return
+
     pages = []
     current = ""
     page_num = 1
+
     for word in sorted(bad_words):
         line = f"`{word}`\n"
         if len(current) + len(line) > 1900:
-            embed = discord.Embed(title=f"Mots Filtrés — Page {page_num}", description=current, color=0x3498db)
-            embed.set_footer(text=f"Total: {len(bad_words)} mots")
-            pages.append(embed)
+            await channel.send(current)
             current = line
             page_num += 1
         else:
             current += line
+
     if current:
-        embed = discord.Embed(title=f"Mots Filtrés — Page {page_num}", description=current, color=0x3498db)
-        embed.set_footer(text=f"Total: {len(bad_words)} mots")
-        pages.append(embed)
-    for embed in pages:
-        await send_webhook(channel, embed=embed)
-        await asyncio.sleep(0.5)
+        await channel.send(current)
+
 async def handle_command(message):
     args = message.content[len(PREFIX):].strip().split()
     if not args:
         return
     cmd = args[0].lower()
+
     perms = message.author.guild_permissions
     is_admin = perms.administrator or perms.manage_guild
+
     if cmd == "help":
-        embed = discord.Embed(title="Yo, Swear Word Moderator Ici", color=0x9b59b6)
+        embed = discord.Embed(title="Yo, Modérateur de Gros Mots Ici", color=0x9b59b6)
         embed.add_field(name="Commandes Publiques", value="`,help` • `,status` • `,list`", inline=False)
         embed.add_field(name="Admin Seulement", value="`,activate` • `,deactivate` • `,addword <mot>` • `,removeword <mot>`", inline=False)
-        embed.set_footer(text="Préfixe: , | J'essaie juste de garder ça chill ici, mec.")
-        await send_webhook(message.channel, embed=embed)
+        embed.set_footer(text="Préfixe: , | Je garde ça chill ici, bro 😎")
+        await message.channel.send(embed=embed)
+
     elif cmd == "status":
         status = "Activé ✅" if moderation_active.get(message.guild.id, True) else "Désactivé ❌"
-        await send_webhook(message.channel, content=f"La modération est **{status}**, mec.")
+        await message.channel.send(f"La modération est **{status}**, bro.")
+
     elif cmd == "activate":
-        if not is_admin: return await send_webhook(message.channel, content="Nah mec, admins seulement.")
+        if not is_admin:
+            await message.channel.send("Nah bro, admins seulement.")
+            return
         moderation_active[message.guild.id] = True
         save_data()
-        await send_webhook(message.channel, content="✅ Modération activée, dude.")
+        await message.channel.send("✅ Modération activée, dude.")
+
     elif cmd == "deactivate":
-        if not is_admin: return await send_webhook(message.channel, content="Admins seulement, mon pote.")
+        if not is_admin:
+            await message.channel.send("Admins seulement, my guy.")
+            return
         moderation_active[message.guild.id] = False
         save_data()
-        await send_webhook(message.channel, content="❌ Modération désactivée pour l'instant.")
+        await message.channel.send("❌ Modération désactivée.")
+
     elif cmd == "addword" and len(args) > 1:
-        if not is_admin: return await send_webhook(message.channel, content="Seuls les admins peuvent faire ça, mec.")
-        word = " ".join(args[1:]).lower().strip()
-        if not word or len(word) > 100 or any(c in word for c in ['\n', '\r', '\\']):  # Added security: prevent newlines/escapes/long inputs
-            return await send_webhook(message.channel, content="Mot invalide (trop long, vide ou contient des caractères spéciaux), mec.")
+        if not is_admin:
+            await message.channel.send("Seulement les admins, bro.")
+            return
+        word = " ".join(args[1:]).lower()
         if word not in bad_words:
             bad_words.append(word)
             save_data()
-            await send_webhook(message.channel, content=f"✅ Ajouté `{word}` à la liste, dude.")
+            await message.channel.send(f"✅ Ajouté `{word}`, dude.")
         else:
-            await send_webhook(message.channel, content="Déjà là, mec.")
+            await message.channel.send("Déjà dans la liste, bro.")
+
     elif cmd == "removeword" and len(args) > 1:
-        if not is_admin: return await send_webhook(message.channel, content="Admins seulement, fam.")
-        word = " ".join(args[1:]).lower().strip()
-        if not word or len(word) > 100 or any(c in word for c in ['\n', '\r', '\\']):
-            return await send_webhook(message.channel, content="Mot invalide (trop long, vide ou contient des caractères spéciaux), mec.")
+        if not is_admin:
+            await message.channel.send("Admins seulement, fam.")
+            return
+        word = " ".join(args[1:]).lower()
         if word in bad_words:
             bad_words.remove(word)
             save_data()
-            await send_webhook(message.channel, content=f"❌ Supprimé `{word}`, cool.")
+            await message.channel.send(f"❌ Retiré `{word}`, cool.")
         else:
-            await send_webhook(message.channel, content="N'était même pas là, mec.")
+            await message.channel.send("Pas dans la liste, bro.")
+
     elif cmd in ["list", "listwords"]:
         await send_paginated_list(message.channel)
-@client.event
-async def on_disconnect():
-    save_data()
-try:
-    client.run(TOKEN)
-except discord.LoginFailure:
-    logger.error("Invalid token")
-except KeyboardInterrupt:
-    logger.info("Bot stopped")
-except Exception as e:
-    logger.error(f"Fatal error: {e}")
+
+async def health(request):
+    return web.Response(text="Bot is alive, bro!")
+
+async def web_server():
+    app = web.Application()
+    app.router.add_get('/', health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    logger.info("Render health check on port 8080")
+
+async def main():
+    await asyncio.gather(
+        web_server(),
+        client.start(TOKEN)
+    )
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped")
+    except Exception as e:
+        logger.error(f"Fatal: {e}")
+    finally:
+        save_data()
