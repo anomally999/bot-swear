@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    logger.error("TOKEN non trouvé !")
+    logger.error("TOKEN non trouvé!")
     exit(1)
 
 # Intents
@@ -89,7 +89,7 @@ default_data = {
     "swear_counts": {}
 }
 
-# Load/save data
+# Chargement/sauvegarde des données
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -126,7 +126,7 @@ MAX_SWEARS = 5
 TIMEOUT_MINUTES = 5
 PARTIAL_TIMEOUT = 30
 
-# Avertissements en français avec vibe amicale
+# Avertissements aléatoires en style amical
 BRO_WARNINGS = [
     "Yo {user}, allez bro, calme-toi avec le langage. ({count}/{max})",
     "Hey dude {user}, on garde ça propre, ouais? ({count}/{max})",
@@ -143,6 +143,7 @@ BRO_WARNINGS = [
     "Hey friend {user}, attention au langage? Merci bro. ({count}/{max})"
 ]
 
+# Messages DM aléatoires
 DM_MESSAGES = [
     "Hey bro, juste un heads up — j'ai capté un gros mot. On garde ça chill ici. T'es à {count}/{max}.",
     "Yo dude, langage! C'est {count}/{max}. Gardons le server propre.",
