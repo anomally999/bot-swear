@@ -18,7 +18,8 @@ TOKEN = os.getenv('TOKEN')
 if not TOKEN:
     logger.error("Token not found in .env file!")
     exit(1)
-# Intents
+# Intents - IMPORTANT: Enable 'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' in Discord Developer Portal > Bot > Privileged Gateway Intents
+# Otherwise, the bot won't receive message content or member events, and you'll see a fatal error in logs.
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -350,8 +351,8 @@ async def handle_command(message):
     elif cmd == "addword" and len(args) > 1:
         if not is_admin: return await send_webhook(message.channel, content="Seuls les admins peuvent faire ça, mec.")
         word = " ".join(args[1:]).lower().strip()
-        if not word or len(word) > 100:
-            return await send_webhook(message.channel, content="Mot invalide, mec.")
+        if not word or len(word) > 100 or any(c in word for c in ['\n', '\r', '\\']):  # Added security: prevent newlines/escapes/long inputs
+            return await send_webhook(message.channel, content="Mot invalide (trop long, vide ou contient des caractères spéciaux), mec.")
         if word not in bad_words:
             bad_words.append(word)
             save_data()
@@ -361,8 +362,8 @@ async def handle_command(message):
     elif cmd == "removeword" and len(args) > 1:
         if not is_admin: return await send_webhook(message.channel, content="Admins seulement, fam.")
         word = " ".join(args[1:]).lower().strip()
-        if not word or len(word) > 100:
-            return await send_webhook(message.channel, content="Mot invalide, mec.")
+        if not word or len(word) > 100 or any(c in word for c in ['\n', '\r', '\\']):
+            return await send_webhook(message.channel, content="Mot invalide (trop long, vide ou contient des caractères spéciaux), mec.")
         if word in bad_words:
             bad_words.remove(word)
             save_data()
